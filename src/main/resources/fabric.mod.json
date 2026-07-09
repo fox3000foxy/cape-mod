@@ -1,0 +1,23 @@
+{
+    "schemaVersion": 1,
+    "id": "cape-mod",
+    "version": "1.0.0",
+    "name": "Cape Mod",
+    "description": "Injects the Mojang Studios cape into the LAN host's profile",
+    "authors": [],
+    "contact": {},
+    "license": "MIT",
+    "environment": "*",
+    "entrypoints": {
+        "main": [
+            "com.example.cape.CapeMod"
+        ]
+    },
+    "mixins": [
+        "cape-mod.mixins.json"
+    ],
+    "depends": {
+        "fabricloader": ">=0.16.9",
+        "minecraft": ">=1.21.1"
+    }
+}
