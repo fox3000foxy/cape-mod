@@ -42,13 +42,118 @@ This means: a `textures` property taken from **any existing Mojang account** (li
 
 ### Extracting a Real Signature
 
-Jeb_'s Minecraft profile contains the Mojang Studios Cape (`9e507afc...`). His full `textures` property was fetched from the Mojang API:
+Jeb_'s Minecraft profile (UUID `853c80ef-3c37-49fd-aa49-938b674adae6`) contains the Mojang Studios Cape (texture ID `9e507afc-5635-9978-a3eb-3e32367042b8`). His full `textures` property was fetched from the Mojang session server:
+
+```bash
+curl -s "https://sessionserver.mojang.com/session/minecraft/profile/853c80ef-3c37-49fd-aa49-938b674adae6?unsigned=false"
+```
+
+#### Response (JSON)
+
+```json
+{
+  "id": "853c80ef-3c37-49fd-aa49-938b674adae6",
+  "name": "jeb_",
+  "properties": [
+    {
+      "name": "textures",
+      "value": "ewogICJ0aW1lc3...",
+      "signature": "RgIPF4d/iTDWJV..."
+    }
+  ]
+}
+```
+
+#### Decoded Payload
+
+The `value` field is base64. Decoded, it contains:
+
+```json
+{
+  "timestamp": 1783619726011,
+  "profileId": "853c80ef-3c37-49fd-aa49-938b674adae6",
+  "profileName": "jeb_",
+  "signatureRequired": true,
+  "textures": {
+    "SKIN": {
+      "url": "http://textures.minecraft.net/texture/7fd9ba42a7c81eeea22f1524271ae85a8e045ce0af5a6ae16c6406ae917e68b5"
+    },
+    "CAPE": {
+      "url": "http://textures.minecraft.net/texture/9e507afc56359978a3eb3e32367042b853cddd0995d17d0da995662913fb00f7"
+    }
+  }
+}
+```
+
+The cape URL matches the Mojang Studios Cape texture ID exactly.
+
+#### The Signature
+
+The `signature` field is a base64 RSA-SHA1 signature of the `value` bytes, made with **Mojang's private key**. The client verifies it against the public key embedded in the Minecraft jar (`/yggdrasil_session_pubkey.der`):
+
+```java
+// Property.java (authlib)
+public boolean isSignatureValid(PublicKey publicKey) {
+    Signature sig = Signature.getInstance("SHA1withRSA");
+    sig.initVerify(publicKey);
+    sig.update(this.value.getBytes());
+    return sig.verify(Base64.decodeBase64(this.signature));
+}
+```
+
+### Why Signature Replay Works
+
+The client's `SkinManager.registerTextures()` creates a `PlayerSkin` with the `secure` flag based on the signature state:
+
+```java
+// SkinManager.java line 137
+return new PlayerSkin(
+    bodyTexture,             // skin PNG
+    capeTexture,            // cape PNG (downloaded regardless!)
+    elytraTexture,          // elytra PNG
+    playerModelType,
+    minecraftProfileTextures.signatureState() == SignatureState.SIGNED  // ← secure
+);
+```
+
+Then in `SkinManager.createLookup()`, the secure check filters for remote players:
+
+```java
+// SkinManager.java line 105
+PlayerSkin skin = optional
+    .filter(ps -> !isRemote || ps.secure())  // ← remote players need secure=true
+    .orElse(defaultSkin);
+```
+
+The critical observation: the `secure` flag is set based on the **signature validity**, not on whether the profileId in the payload matches the player's UUID. The RSA signature from jeb_'s profile is valid — it was genuinely made by Mojang. The fact that it contains jeb_'s UUID instead of the host's UUID is not checked anywhere in the client code.
+
+#### Code Path
 
 ```
-GET https://sessionserver.mojang.com/session/minecraft/profile/<UUID>?unsigned=false
+ClientboundPlayerInfoUpdatePacket.Entry(ServerPlayer player)
+  └─ player.getGameProfile()                        ← mixin intercepts here
+     └─ returns NEW GameProfile with jeb_'s textures
+  └─ Entry stores modified profile
+  └─ Packet serialized to network
+     └─ ADD_PLAYER writes profile.properties()
+        └─ our textures property is the ONLY one
+     └─ Friend's client receives packet
+        └─ PlayerInfo(profile, ...)
+           └─ SkinManager.createLookup(profile, true)
+              └─ getPackedTextures(profile)
+                 └─ returns our textures property
+              └─ unpackTextures(property)
+                 └─ base64 decode JSON
+                 └─ verify RSA signature → SIGNED ✓
+                 └─ return cape URL
+              └─ download cape from textures.minecraft.net
+              └─ create PlayerSkin(body, cape, ..., secure=true)
+              └─ filter(secure) → passes → return skin
+        └─ AvatarRenderer.extractRenderState()
+           └─ state.skin = player.getSkin()   ← has cape
+        └─ CapeLayer.submit()
+           └─ skin.cape() != null → render cape!
 ```
-
-This returns a signed `textures` property (base64 value + RSA signature). This property is **valid** and **signed by Mojang** — it will pass the `secure` check on any vanilla client.
 
 ### Injecting on LAN
 
