@@ -1,8 +1,8 @@
 {
     "schemaVersion": 1,
     "id": "cape-mod",
-    "version": "1.0.0",
-    "name": "Cape Mod",
+    "version": "1.0.1",
+    "name": "Cape Mod (Millionth Customer)",
     "description": "Injects the Mojang Studios cape into the LAN host's profile",
     "authors": [],
     "contact": {},
