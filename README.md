@@ -129,52 +129,53 @@ The critical observation: the `secure` flag is set based on the **signature vali
 
 #### Code Path
 
-```
-ClientboundPlayerInfoUpdatePacket.Entry(ServerPlayer player)
-  └─ player.getGameProfile()                        ← mixin intercepts here
-     └─ returns NEW GameProfile with jeb_'s textures
-  └─ Entry stores modified profile
-  └─ Packet serialized to network
-     └─ ADD_PLAYER writes profile.properties()
-        └─ our textures property is the ONLY one
-     └─ Friend's client receives packet
-        └─ PlayerInfo(profile, ...)
-           └─ SkinManager.createLookup(profile, true)
-              └─ getPackedTextures(profile)
-                 └─ returns our textures property
-              └─ unpackTextures(property)
-                 └─ base64 decode JSON
-                 └─ verify RSA signature → SIGNED ✓
-                 └─ return cape URL
-              └─ download cape from textures.minecraft.net
-              └─ create PlayerSkin(body, cape, ..., secure=true)
-              └─ filter(secure) → passes → return skin
-        └─ AvatarRenderer.extractRenderState()
-           └─ state.skin = player.getSkin()   ← has cape
-        └─ CapeLayer.submit()
-           └─ skin.cape() != null → render cape!
+```mermaid
+flowchart TD
+    A["ClientboundPlayerInfoUpdatePacket<br/>Entry(ServerPlayer player)"] --> B["player.getGameProfile()<br/>← mixin intercepts here"]
+    B --> C["returns NEW GameProfile<br/>with jeb_'s textures"]
+    C --> D["Entry stores modified profile"]
+    D --> E["Packet serialized to network"]
+    E --> F["ADD_PLAYER writes<br/>profile.properties()"]
+    F --> G["our textures property<br/>is the ONLY one"]
+    G --> H["Friend's client receives packet"]
+    H --> I["PlayerInfo(profile, …)"]
+    I --> J["SkinManager.createLookup(profile, true)"]
+    J --> K["getPackedTextures(profile)"]
+    K --> L["returns our textures property"]
+    L --> M["unpackTextures(property)"]
+    M --> N["base64 decode JSON"]
+    N --> O["verify RSA signature<br/>→ SIGNED ✓"]
+    O --> P["return cape URL"]
+    P --> Q["download cape from<br/>textures.minecraft.net"]
+    Q --> R["create PlayerSkin(body, cape, …,<br/>secure=true)"]
+    R --> S["filter(secure) → passes<br/>→ return skin"]
+    S --> T["AvatarRenderer.extractRenderState()"]
+    T --> U["state.skin = player.getSkin()<br/>← has cape"]
+    U --> V["CapeLayer.submit()"]
+    V --> W["skin.cape() != null<br/>→ render cape!"]
+    
+    style B fill:#ff6,stroke:#333
+    style O fill:#6f6,stroke:#333
+    style S fill:#6f6,stroke:#333
 ```
 
 ### Injecting on LAN
 
 In a LAN world, the host's `ServerPlayer` is created from an offline or online profile. By intercepting `Player.getGameProfile()` via a Mixin, we can return a modified `GameProfile` that carries Jeb_'s textures instead of the host's:
 
-```
-Host (modded)                         Friend (vanilla, joins LAN)
-  │                                         │
-  │── Entry(serverPlayer) ──                  │
-  │   └─ getGameProfile() ──►                │
-  │   └─ Mixin returns modified profile       │
-  │      with jeb_'s textures                 │
-  │         (signed by Mojang)                │
-  │                                          │
-  │── ClientboundPlayerInfoUpdatePacket ────►│
-  │   └─ profile.properties = jeb_'s          │
-  │      textures (valid signature)           │
-  │                                          │
-  │                               └─ unpackTextures()
-  │                               └─ SignatureState.SIGNED
-  │                               └─ secure = true → CAPE!
+```mermaid
+sequenceDiagram
+    participant H as Host (modded)
+    participant F as Friend (vanilla)
+    
+    H->>H: Entry(serverPlayer)
+    H->>H: player.getGameProfile()
+    Note over H: Mixin returns modified<br/>profile with jeb_'s textures<br/>(signed by Mojang)
+    H->>F: ClientboundPlayerInfoUpdatePacket
+    Note right of F: profile.properties = jeb_'s<br/>textures (valid signature)
+    F->>F: unpackTextures()
+    F->>F: SignatureState.SIGNED ✓
+    F->>F: secure = true → CAPE!
 ```
 
 ### Why This Works
@@ -192,12 +193,23 @@ Modifying packets in a **LAN-tunneled environment** (NGROK, playit.gg, Radmin VP
 
 ### The Architecture
 
-```
-┌──────────────┐     NGROK tunnel      ┌──────────────┐
-│ Host (modded)│ ◄──────────────────► │ Friend (vanilla)│
-│ Integrated   │     TCP relay         │ No mods needed │
-│ Server       │                       │                │
-└──────────────┘                       └──────────────┘
+```mermaid
+graph LR
+    subgraph Host["Host Machine (modded)"]
+        MC["Minecraft Client<br/>+ Fabric Mod"]
+        IS["Integrated Server"]
+        MC <--> IS
+    end
+    
+    subgraph Tunnel["NGROK / playit.gg / Radmin VPN"]
+        T["TCP Tunnel"]
+    end
+    
+    subgraph Friend["Friend Machine (vanilla)"]
+        VC["Minecraft Client<br/>No mods"]
+    end
+    
+    IS --> T --> VC
 ```
 
 Because the integrated server runs in the same process as the modded client, the mod has full control over:
