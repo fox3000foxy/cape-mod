@@ -1,5 +1,7 @@
 # Cape Mod — LAN GameProfile Injection
 
+<img width="1240" height="680" alt="image" src="https://github.com/user-attachments/assets/e94667b1-9ae6-4a81-81f2-d96624beb2d8" />
+
 A Fabric mod for Minecraft 1.21.11 that injects a Mojang-signed `textures` property into the LAN host's `GameProfile`, allowing any player who joins to see a custom cape without installing any mods.
 
 ## How It Was Discovered
